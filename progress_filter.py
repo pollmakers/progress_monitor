@@ -11,10 +11,8 @@ import os
 import json
 names = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\names.csv"
 
-INPUT_FOLDER = os.path.join(os.getcwd(),'input')
-OUTPUT_FOLDER = os.path.join(os.getcwd(),'output')
-COURSE_MAPPING_FILE = os.path.join(os.getcwd(),'track_course_mapping.json')
-NAMES_FILE = os.path.join(os.getcwd(),'names.csv')
+from common import INPUT_FOLDER, OUTPUT_FOLDER, COURSE_MAPPING_FILE, NAMES_FILE
+from common import MASTER_FOLDER
 
 with open(COURSE_MAPPING_FILE,'r') as inp:
     course_mapping = json.load(inp)
@@ -197,7 +195,7 @@ def process(names = NAMES_FILE, mode ='single' ):
         final_df['enrolled'] = temp
         
         # change the order of the columns
-        final_df = final_df[['name','track','course','enrolled','started_at','completed_at']]
+        final_df = final_df[['name','track','course','enrolled','started_at','percent_complete','completed_at']]
         processed_dataframes.append(final_df)
                 
             

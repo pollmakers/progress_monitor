@@ -12,6 +12,8 @@ import pandas as pd
 import json
 
 df = pd.read_excel('courselist.xlsx',sheet_name = 0)
+df['name'] = df['name'].apply(lambda x: x.strip())
+df['code'] = df['code'].apply(lambda x: x.strip())
 BE_courses = dict(df[df.BE==1][['code','name']].values)
 FE_courses = dict(df[df.FE==1][['code','name']].values)
 DS_courses = dict(df[df.DS==1][['code','name']].values)
