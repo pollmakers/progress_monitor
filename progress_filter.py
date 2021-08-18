@@ -8,21 +8,17 @@ This script would do the following:
 import pandas as pd
 import glob
 import os
-import json
+
 names = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\names.csv"
 
-from common import INPUT_FOLDER, OUTPUT_FOLDER, COURSE_MAPPING_FILE, NAMES_FILE
-from common import MASTER_FOLDER
+from common import PROGRESS_FOLDER, OUTPUT_FOLDER, NAMES_FILE
+from common import TRACK_COURSE_MAPPING
+from common import course_name_to_code
+from common import save_output
+# with open(TRACK_COURSE_MAPPING_FILE,'r') as inp:
+#     TRACK_COURSE_MAPPING = json.load(inp)
 
-with open(COURSE_MAPPING_FILE,'r') as inp:
-    course_mapping = json.load(inp)
 
-
-modes = {'y':'bulk','n':'single'}
-
-#== Test data ================
-progressfile = 'DS.S 01.csv'
-#=============================
 
 # the names in the data file are either names or emails. We want to:
 """
@@ -49,22 +45,16 @@ def course_code_to_name(course_code):
     - should return the name of the course given the course code
     - the course code should be the same as the name of the file
     """
-    for track in course_mapping:
-        if course_code in course_mapping[track]:
-            return course_mapping[track][course_code]
+    for track in TRACK_COURSE_MAPPING:
+        if course_code in TRACK_COURSE_MAPPING[track]:
+            return TRACK_COURSE_MAPPING[track][course_code]
 
-def course_name_to_code(course_name):
-    for track in course_mapping:
-        for key, value in course_mapping[track].items(): 
-         if course_name.strip() == value: 
-             return key 
-  
-    return "key doesn't exist"
+
     
     
     
-def bulk_load_data():
-    files = glob.glob(INPUT_FOLDER + "/*.csv")
+def bulk_load_data(source_folder):
+    files = glob.glob(PROGRESS_FOLDER + "/*.csv")
     return files
             
 def filter_names(progress_df,name_list = None,email_list = None):
@@ -97,13 +87,7 @@ def emails_to_names(names_df, email_names):
     names_as_emails = email_names.assign(fullname = email_names.name.map(email_to_name))
     return names_as_emails
 
-def save_output(final_df,output_file):
-    """
-    save output of cleaned data to output folder
-    """
-    output_file = os.path.join(OUTPUT_FOLDER,output_file)
-    final_df.to_csv(output_file)
-    print("Done saving **{}** to output folder".format(output_file))
+
 
 
 def tag_enrollment(course_code,track):
@@ -114,7 +98,7 @@ def tag_enrollment(course_code,track):
     Sol: If this course is on the course list for the track 
     enrolled, then this person is enrolled in the course
     """
-    track_courses = course_mapping.get(track,'')
+    track_courses = TRACK_COURSE_MAPPING.get(track,'')
     
     if course_code in track_courses:
         enrolled = 'Yes'
@@ -123,9 +107,69 @@ def tag_enrollment(course_code,track):
     return enrolled
 
         
-
+def clean_progress_file(progress_file):
+    """
+    Code for cleaning up the raw progress file.
     
-def process(names = NAMES_FILE, mode ='single' ):
+
+    Parameters
+    ----------
+    progress_file : file name being name of the course
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
+    print('processing {}'.format(progress_file))
+    
+    namesdf = load_names()
+    name_list = namesdf['name'].values.tolist()
+    email_list = namesdf['email'].values.tolist()
+    progress_df = load_data(progress_file)
+    # seperate the correct full names from email names
+    names_as_fullnames, names_as_emails = filter_names(progress_df,name_list,email_list)
+    names_as_emails = emails_to_names(namesdf,names_as_emails)
+    
+    # update name column with full names
+    names_as_emails['name'] = names_as_emails.fullname.values
+    names_as_emails.drop(columns =['fullname'],inplace = True)
+          
+    #== output table should have: ==
+    # name, track, course, enroled, started, completed
+    final_df = final_df = pd.concat((names_as_fullnames,names_as_emails),axis=0)
+    
+    # add column for track info
+    name_track_map = dict(namesdf[['name','track']].values)
+    final_df['track'] = final_df['name'].map(name_track_map)
+    
+    #get course name
+    # course_code = os.path.splitext(progress_file)[0]
+    # course_name = course_code_to_name(course_code)
+    course_name = os.path.splitext(os.path.basename(progress_file))[0]
+    course_code =  course_name_to_code(course_name)
+    final_df['course'] = course_name
+    
+    # create columns for enrollment status
+    temp =[]
+    for record in final_df.to_dict(orient = 'records'):
+        #check if the course name for current progress file
+        # is in course list for thi record
+        
+        temp.append(tag_enrollment(track= record['track'], course_code = course_code))
+    
+    final_df['enrolled'] = temp
+    #filter out those enrolled
+    final_df = final_df[final_df.enrolled == 'Yes']
+    
+    # change the order of the columns
+    final_df = final_df[['name','track','course','enrolled','started_at','percent_complete','completed_at']]
+    save_output(final_df,course_name+'.csv')
+    
+    return final_df
+    
+def process(names = NAMES_FILE):
     """
     Sets up the sequence for processing all relevant files
     
@@ -147,13 +191,14 @@ def process(names = NAMES_FILE, mode ='single' ):
     email_list = namesdf['email'].values.tolist()
     
     # read progress files
-    bulk_files = bulk_load_data()
-    #bulk_files =[course_name_to_code(item) for item in bulk_files]
+    progress_files = bulk_load_data(source_folder = PROGRESS_FOLDER)
+   
+    #progress_files =[course_name_to_code(item) for item in progress_files]
     all_dataframes = []
     
-    for file in bulk_files:
-        df = pd.read_csv(file, index_col=None, header=0)
-        all_dataframes.append((os.path.basename(file),df))
+    for file in progress_files:
+        progress_df = pd.read_csv(file, index_col=None, header=0)
+        all_dataframes.append((os.path.basename(file),progress_df))
     
     
     # Now, process each file separately
@@ -161,6 +206,7 @@ def process(names = NAMES_FILE, mode ='single' ):
     processed_dataframes = []
     print('===== Processing Progress Files ====',end='\n\n')
     for filename,datadf in all_dataframes:
+        print('processing {}'.format(filename))
         
         names_as_fullnames, names_as_emails = filter_names(datadf,name_list,email_list)
         names_as_emails = emails_to_names(namesdf,names_as_emails)
@@ -186,7 +232,7 @@ def process(names = NAMES_FILE, mode ='single' ):
         
         # create columns for enrollment status
         temp =[]
-        for record in final_df.to_dict(orient = 'record'):
+        for record in final_df.to_dict(orient = 'records'):
             #check if the course name for current progress file
             # is in course list for thi record
             
@@ -194,9 +240,13 @@ def process(names = NAMES_FILE, mode ='single' ):
         
         final_df['enrolled'] = temp
         
+        #filter out those enrolled
+        final_df = final_df[final_df.enrolled == 'Yes']
+        
         # change the order of the columns
         final_df = final_df[['name','track','course','enrolled','started_at','percent_complete','completed_at']]
-        processed_dataframes.append(final_df)
+        #processed_dataframes.append(final_df)
+        #save_output(final_df, course_name)
                 
             
         

@@ -5,13 +5,18 @@ Created on Thu Jul 29 13:57:14 2021
 @author: AmaliTech
 
 =====================================
-This module is for updatiing a single master sheet with the weekly updates.
+This module is for updating the master files for each course.
+In the end, a single master file will be created by appending all
+the updates to a single file.
 
 1. read the progress file
 2. select the percent_complete column
 3. append the data to the coresponding name in the master sheet.
 
 NB: Need to make sure that names are correctly matched
+- the recommended file naming convention for progress reports is to use the course code
+- however it might be easier naming them by the exac course names
+- if course names are used, they must be exact as those in the courselist.csv
 """
 import datetime
 from openpyxl import load_workbook
@@ -20,13 +25,15 @@ import os
 import glob 
 import shutil
 
-from common import INPUT_FOLDER, OUTPUT_FOLDER, COURSE_MAPPING_FILE, NAMES_FILE, TRACK_COURSE_MAPPING
+from common import PROGRESS_FOLDER, OUTPUT_FOLDER, COURSE_MAPPING_FILE, NAMES_FILE, TRACK_COURSE_MAPPING
 from common import MASTER_FOLDER, HISTORY_FOLDER
 
 from common import bulk_load_data,get_progress_data, load_data
+from common import get_course_enrolment
+
 #========= Test Data ===
-progress_file = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\output\current_progress.csv"
-master_workbook = load_workbook(os.path.join(MASTER_FOLDER,'course_progress.xlsx'))
+#progress_file = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\output\current_progress.csv"
+#master_workbook = load_workbook(os.path.join(MASTER_FOLDER,'course_progress.xlsx'))
 #=======================
 
 # list available courses
@@ -40,91 +47,65 @@ names_df['name'] = names_df['name'].apply(lambda x: x.strip())
 trainee_list = names_df.to_dict(orient='record')
 num_enrolled = len(trainee_list)
 
-psheet = master_workbook['progress']
+# psheet = master_workbook['progress']
 
-def get_master_data():
-    try:
-        #master_file = os.path.basename(file_name.split('.')[0]) #+ ".xlsx"
-        master_file = os.path.join(MASTER_FOLDER,'course_progress.xlsx')
-        master_wb = load_workbook(master_file)
-    except FileNotFoundError:
-        print("{} does not exist in master folder".format(master_file))
-        return
-    
-    return master_file,master_wb
-
-def update_progress():
+l = []
+#==============================================================================
+# STEPS:
+"""
+- GET THE PROGRESS DATA FOR EACH COURSE
+- GET THE CORRESPONDING MASTER FILES
+- UPDATE THE RECORDS FOR LEARNERS IN THAT TRACK
+- APPEND THE OUTPUT TO A TEMPORARY Storage
+- JOIN THE OUTPUT AND STORE IN A SINGLE FILE
+"""
+#==============================================================================
+# 1
+def load_progress_files():
     """
-    obtains the progress info for each trainee for each course enroled and 
-    updates the corresponding records
+    Loads progress files
+    Returns
+    -------
+    None.
+
+    """
+    files = bulk_load_data()
+    
+    
+    return files
+
+#2
+def load_master_files():
+    """
+    constructs the path for all master files for progress files provided
 
     Returns
     -------
-    str
-        updated version of progress workbok in master folder.
+    csv files
 
     """
-    # obtain the sheet to be updated
-    master_progress_sheet = master_workbook['progress']
-    master_summary_sheet = master_workbook['summary']
+    progress_files = load_progress_files()
     
-    # make sheets in df
-    progress_columns = next(master_progress_sheet.values)
-    master_progress_sheet_df = pd.DataFrame(
-        list(master_progress_sheet.values),
-        columns=progress_columns
-        )
-    last_column = master_progress_sheet.max_column
-    next_column = last_column + 1
-    
-    #create a new column with header as current date
-    master_progress_sheet.cell(1,next_column).value = datetime.datetime.today().date()
-    
-    # create dictionary mapings to ease out name search
-    
-    
-    # go through the progress files and update the scores for all
-    # enrolled in that course
-    for track in TRACK_COURSE_MAPPING:
-        course_list = TRACK_COURSE_MAPPING.get(track)
-        progress_files = [os.path.join(os.getcwd(),OUTPUT_FOLDER,f) for f in course_list.keys()]
-        
-        for file in progress_files:
-            
-            
-            progress_data = load_data(file)
-            
-            # get the people enroled in this course:
-            course = os.path.basename(file)
-            people_enrolled_data = progress_data[(progress_data.course == course) & (progress_data.enrolled == 'Yes')]
-            
-            name_progress_dict = { name.strip():progress for name,progress in list(people_enrolled_data[['name','percent_complete']].values)}
-            name_date_started_dict = { name.strip():started for name,started in list(people_enrolled_data[['name','started_at']].values)}
-            name_date_completed_dict = { name.strip():started for name,started in list(people_enrolled_data[['name','completed_at']].values)}
-    
-            #Now conver master progress sheet to pandas df, apply neccesaey filter and update
-            #percent_complete = progress_data.percent_complete
-            for row in range(2, master_progress_sheet.max_row+1):
-                
-                # get the name of current learner
-                
-                name = master_progress_sheet.cell(row = row, column=1).value.strip()
-                
-                # find corresponding value and update the progress
-                
-                master_progress_sheet.cell(row = row, column=next_column).value = name_progress_dict.get(name,0)
-                
-                # if Started_At column is empty, update it
-                if master_summary_sheet.cell(row = row, column=3).value is None:
-                   master_summary_sheet.cell(row = row, column=3).value = name_date_started_dict.get(name,'')
-                   master_summary_sheet.cell(row = row, column=4).value = name_date_completed_dict.get(name,'')
-            #return master_progress_sheet
-        
+    for progress_file in progress_files:
+        progress_file = os.path.splitext(os.path.basename(progress_file))[0]+'.xlsx'
+        yield "{}".format(os.path.join(MASTER_FOLDER,progress_file))
     
 
+#3   
+def load_master_data(file_name):
+    try:
+        master_wb = load_workbook(file_name)
+    except FileNotFoundError:
+        print("{} does not exist in master folder".format(file_name))
     
+    except Exception:
+        print("Unable to open {}. Make sure it's a valid file".format(file_name))
+        return
+    
+    return master_wb
 
-def update_progress_sheet(progress_data,master_workbook):
+
+def update_progress_sheet(course_name,progress_data,master_workbook):
     """
     This function handles the task of updating the master sheet with the 
     latest progress figures.
@@ -135,38 +116,46 @@ def update_progress_sheet(progress_data,master_workbook):
     To Do:
         Add a function that checks and update the Started At column
     """
-    _,master_workbook = get_master_data()
+    # Get enrollment for this course
+    
+    enrollment = get_course_enrolment(course_name)
+    
+    # Get the correct sheets
     master_progress_sheet = master_workbook['progress']
     summary_sheet = master_workbook['summary']
+    
+    # Ge the colum to update the next values
     last_column = master_progress_sheet.max_column
     next_column = last_column + 1
     
     #create a new column with header as current date
     master_progress_sheet.cell(1,next_column).value = datetime.datetime.today().date()
     
-    # create dictionary mapings to ease out name search
     
+    # filter out people not enrolled in the course
+    progress_data = progress_data[progress_data.name.isin(enrollment)]
+    
+    # create dictionary mapings to ease out name search
     name_progress_dict = { name.strip():progress for name,progress in list(progress_data[['name','percent_complete']].values)}
     name_date_started_dict = { name.strip():started for name,started in list(progress_data[['name','started_at']].values)}
     name_date_completed_dict = { name.strip():started for name,started in list(progress_data[['name','completed_at']].values)}
     
-    #now fill the remaining cells with the corresponding values
-    #percent_complete = progress_data.percent_complete
+    # get each record in mastersheet and update them 
     for row in range(2, master_progress_sheet.max_row+1):
         
-        # get the name of current learner
-        
-        name = master_progress_sheet.cell(row = row, column=1).value.strip()
+        # get the name of current learner in the master sheet
+        name = master_progress_sheet.cell(row = row, column=1).value
+        name = name.strip() if name is not None else name
         
         # find corresponding value and update the progress
-        
-        master_progress_sheet.cell(row = row, column=next_column).value = name_progress_dict.get(name,0)
-        
-        # if Started_At column is empty, update it
-        if summary_sheet.cell(row = row, column=3).value is None:
-           summary_sheet.cell(row = row, column=3).value = name_date_started_dict.get(name,'')
-           summary_sheet.cell(row = row, column=4).value = name_date_completed_dict.get(name,'')
-    #return master_progress_sheet
+        if name in enrollment:
+            master_progress_sheet.cell(row = row, column=next_column).value = name_progress_dict.get(name,0)
+            
+            # if Started_At column is empty, update it
+            if summary_sheet.cell(row = row, column=3).value is None:
+               summary_sheet.cell(row = row, column=3).value = name_date_started_dict.get(name,'')
+               summary_sheet.cell(row = row, column=4).value = name_date_completed_dict.get(name,'')
+        #return master_progress_sheet
 
 
 def cleanup():
@@ -195,7 +184,7 @@ def cleanup():
         shutil.move(file,os.path.join(destination_folder,file_name))
         
     # Cleanup files in the output folder in parent directory
-    for file in bulk_load_data(INPUT_FOLDER):
+    for file in bulk_load_data(PROGRESS_FOLDER):
         os.remove(file)
     
     
@@ -210,42 +199,37 @@ TO DO
 master file is updated for those leaeners whose entries are empty
 """    
 
-#wb = load_workbook(filename = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\master\build-web-apps-with-django.xlsx")
-#sheet = wb.get_sheet_by_name('progression')
 
+def process(course_name,progress_file, master_file):
+    """
+    Function to chain all the steps together for a single progress file
+    and a single master file
+
+    Returns
+    -------
+    None.
+
+    """
+        
+    # 1. Get progress Data
     
-
-
-# Obtain the new progress data. Column of interest is current_progress
-#progress_data = load_data(progress_file)
-
-
-
-
-# def process(mode = 'single'):
-#     response = input("Do you want to process multiple files? Y/N:  ")
+    progress_data = load_data(progress_file)
     
-#     mode = modes[response.lower()]
-#     if mode == 'single':
-#         print()
-#         print("Make sure the file specified is in the `input` folder")
-#         print("The output will be in the `output` folder with the same name")
-#         file_name = input("What is the name of the progress file without the extension?   ")
+    # 2. Get master file
+    master_wb = load_master_data(file_name = master_file) 
+    
+    # 3. update progress sheet in master workbook
+    update_progress_sheet(
+        course_name = course_name,
+        progress_data = progress_data,
+        master_workbook = master_wb
         
-#         # 1. Get progress Data
-#         progress_file, progress_data = get_progress_data(file_name = file_name )
+        )
         
-#         # 2. Get master file
-#         master_file, master_wb = get_master_data(file_name = progress_file) 
-        
-#         # 3. update progress sheet in master workbook
-#         update_progress_sheet(progress_data = progress_data,
-#                               master_workbook= master_wb
-#                               )
-        
-#         # 4. Save workbook
-#         master_wb.save(os.path.join(MASTER_FOLDER,master_file + '_copy.xlsx'))
-#         print("Done updating **{}** in master  folder".format(master_file))
+    
+    # 4. Save workbook
+    master_wb.save(os.path.join(MASTER_FOLDER,master_file + '_copy.xlsx'))
+    print("Done updating **{}** in master  folder".format(master_file))
         
 
     
@@ -280,8 +264,18 @@ master file is updated for those leaeners whose entries are empty
 #         cleanup()
 
 
+
+def run():
+    progress_files = load_progress_files()
+    master_fiiles = load_master_files()
+    
+    for progress_file, master_file in zip(progress_files,master_fiiles):
+        course_name = os.path.splitext(os.path.basename(progress_file))[0]
+        process(course_name,progress_file,master_file)
+        
+
 if __name__ == 'main':
-    update_progress()
+    run()
 else:
-    update_progress()
+    run()
     
