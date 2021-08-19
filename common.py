@@ -10,7 +10,7 @@ import pandas as pd
 import json
 #=========== CONSTANTS ========
 PROGRESS_FOLDER = os.path.join(os.getcwd(),'progress_reports')
-OUTPUT_FOLDER = os.path.join(os.getcwd(),'output')
+OUTPUT_FOLDER = os.path.join(os.getcwd(),'cleaned_reports')
 COURSE_MAPPING_FILE = os.path.join(os.getcwd(),'track_course_mapping.json')
 NAMES_FILE = os.path.join(os.getcwd(),'names.csv')
 MASTER_FOLDER = os.path.join(os.getcwd(),'master')
@@ -31,6 +31,25 @@ for track in TRACK_COURSE_MAPPING:
     ALL_COURSES.update(TRACK_COURSE_MAPPING[track])
 
 #==============================
+def load_names(file = NAMES_FILE):
+    """
+    Reads names in the names.csv of all trainees in the program
+
+    Parameters
+    ----------
+    file : TYPE, optional
+        DESCRIPTION. file for names of all trainees in program.
+
+    Returns
+    -------
+    namesdf : TYPE
+        pandas df.
+
+    """
+    namesdf = pd.read_csv(file)
+    namesdf['name'] = [name.strip() for name in namesdf.name]
+    namesdf['email']= [email.strip() for email in namesdf.email]
+    return namesdf
 
 def get_course_enrolment(course):
     """
@@ -60,7 +79,16 @@ def get_course_enrolment(course):
             continue
     return enrolled
 
-
+def course_code_to_name(course_code):
+    """
+    - should return the name of the course given the course code
+    - the course code should be the same as the name of the file
+    """
+    for track in TRACK_COURSE_MAPPING:
+        if course_code in TRACK_COURSE_MAPPING[track]:
+            return TRACK_COURSE_MAPPING[track][course_code]
+        
+        
 def course_name_to_code(course_name):
     """
     Returns the course code given a course name
@@ -90,7 +118,21 @@ def bulk_load_data(source_folder = PROGRESS_FOLDER):
 def load_data(file):
     return pd.read_csv(file)
 
-def get_progress_data(file_name):
+
+def load_progress_files():
+    """
+    Loads progress files
+    Returns
+    -------
+    None.
+
+    """
+    files = bulk_load_data()
+    
+    
+    return files
+
+def load_progress_data(file_name):
     
     try:
         progress_file = file_name if file_name.endswith(".csv") else file_name + ".csv"
@@ -100,10 +142,11 @@ def get_progress_data(file_name):
     
     return progress_file, progress_data
 
-def save_output(final_df,output_file):
+def save_output(df,file_name):
     """
     save output of cleaned data to output folder
     """
-    output_file = os.path.join(OUTPUT_FOLDER,output_file)
-    final_df.to_csv(output_file)
-    print("Done saving **{}** to output folder".format(output_file))
+    output_file = os.path.join(OUTPUT_FOLDER,file_name)
+    df.to_csv(file_name)
+    
+    print("Done saving **{}** to output folder".format(file_name))

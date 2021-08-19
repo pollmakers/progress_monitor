@@ -9,16 +9,16 @@ import pandas as pd
 import glob
 import os
 
-names = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\names.csv"
-
 from common import PROGRESS_FOLDER, OUTPUT_FOLDER, NAMES_FILE
 from common import TRACK_COURSE_MAPPING
 from common import course_name_to_code
 from common import save_output
-# with open(TRACK_COURSE_MAPPING_FILE,'r') as inp:
-#     TRACK_COURSE_MAPPING = json.load(inp)
+from common import load_names
+from common import load_data
 
-
+from common import bulk_load_data
+from common import get_course_enrolment
+from common import load_progress_files
 
 # the names in the data file are either names or emails. We want to:
 """
@@ -28,54 +28,51 @@ NB: A master template exist containing all names  and track information
 3. add/update the column that indicates whether a person is enroled in a course or not
 
 """
-def load_data(file):
-    return pd.read_csv(file)
-    
-def load_names(file = NAMES_FILE):
-    """
-    Reads names in the names.csv
-    """
-    namesdf = pd.read_csv(file)
-    namesdf['name'] = [name.strip() for name in namesdf.name]
-    namesdf['email']= [email.strip() for email in namesdf.email]
-    return namesdf
 
-def course_code_to_name(course_code):
-    """
-    - should return the name of the course given the course code
-    - the course code should be the same as the name of the file
-    """
-    for track in TRACK_COURSE_MAPPING:
-        if course_code in TRACK_COURSE_MAPPING[track]:
-            return TRACK_COURSE_MAPPING[track][course_code]
+#===== CODE NEEDING TO RUN ONLY ONE TIME ======
+names_df = load_names()
+progress_df = load_data(os.path.join(PROGRESS_FOLDER,'Analyze Data with Python.csv'))
 
+#==============================================    
 
-    
-    
-    
-def bulk_load_data(source_folder):
-    files = glob.glob(PROGRESS_FOLDER + "/*.csv")
-    return files
-            
-def filter_names(progress_df,name_list = None,email_list = None):
+def clean_names_column(progress_df,names_df = names_df):
     """
-    - cleans the names for uniformity
-    - filters names in progress file to match those in names.csv, who 
-    are current trainees
+    Return the progress data with the names cleaned and a few more columns
+    added
+    
+    Note: Some of the names in the progess file are not trainees.
+    They will be left out.
+    
+    Anyone left out means names are not spelt consistently
+
+    Parameters
+    ----------
+    progress_df : pandas df
+        progress dataframe for a single course.
+    names_df : pandas df
+        names of all trainees.
+
+    Returns
+    -------
+    None.
+
     """
+    name_list = [name.strip() for name in names_df.name.values]
+    email_list =[email.strip() for email in names_df.email.values]
     
-    # seperate the names in the so that those with emails provided as names
-    # will be in a seprate list
-    df = load_names()
-    name_list = df.name.values
-    email_list = df.email.values
+    email_name_map = {email:name for name,email in names_df[['name','email']].values}
     
-    # get records with full names 
-    names_as_fullnames = progress_df[progress_df.name.isin(name_list)]
-    # get records having emails as full name
-    names_as_emails = progress_df[progress_df.name.isin(email_list)]
+    # pick out the names that are emails and replace them accordingly
+    clean = progress_df[progress_df.name.isin(name_list)]
+    to_correct = progress_df[progress_df.name.isin(email_list)]
     
-    return names_as_fullnames, names_as_emails
+    to_correct['name'] = to_correct['name'].map(email_name_map)
+    # update name column with full names
+    
+    cleaned_df = pd.concat([clean,to_correct])
+        
+    return cleaned_df
+
 
 def emails_to_names(names_df, email_names):
     """
@@ -122,54 +119,44 @@ def clean_progress_file(progress_file):
     None.
 
     """
-    print('processing {}'.format(progress_file))
+    #print('processing {}'.format(progress_file))
     
-    namesdf = load_names()
-    name_list = namesdf['name'].values.tolist()
-    email_list = namesdf['email'].values.tolist()
-    progress_df = load_data(progress_file)
-    # seperate the correct full names from email names
-    names_as_fullnames, names_as_emails = filter_names(progress_df,name_list,email_list)
-    names_as_emails = emails_to_names(namesdf,names_as_emails)
-    
-    # update name column with full names
-    names_as_emails['name'] = names_as_emails.fullname.values
-    names_as_emails.drop(columns =['fullname'],inplace = True)
-          
     #== output table should have: ==
     # name, track, course, enroled, started, completed
-    final_df = final_df = pd.concat((names_as_fullnames,names_as_emails),axis=0)
+    
+    # load progress data
+    progress_data = load_data(progress_file)
+    
+    # correct name errors 
+    cleaned_df =  clean_names_column(progress_df = progress_data)
+    
+    
     
     # add column for track info
-    name_track_map = dict(namesdf[['name','track']].values)
-    final_df['track'] = final_df['name'].map(name_track_map)
+    name_track_map = dict(names_df[['name','track']].values)
+    cleaned_df['track'] = cleaned_df['name'].map(name_track_map)
     
-    #get course name
-    # course_code = os.path.splitext(progress_file)[0]
-    # course_name = course_code_to_name(course_code)
+    
+    # Get course name
     course_name = os.path.splitext(os.path.basename(progress_file))[0]
     course_code =  course_name_to_code(course_name)
-    final_df['course'] = course_name
+    cleaned_df['course'] = course_name
     
-    # create columns for enrollment status
+    # create new column for enrollment status
     temp =[]
-    for record in final_df.to_dict(orient = 'records'):
-        #check if the course name for current progress file
-        # is in course list for thi record
-        
+    for record in cleaned_df.to_dict(orient = 'records'):
         temp.append(tag_enrollment(track= record['track'], course_code = course_code))
     
-    final_df['enrolled'] = temp
-    #filter out those enrolled
-    final_df = final_df[final_df.enrolled == 'Yes']
+    cleaned_df['enrolled'] = temp
+    #Keep only records for those enrolled in course
+    cleaned_df = cleaned_df[cleaned_df.enrolled == 'Yes']
     
     # change the order of the columns
-    final_df = final_df[['name','track','course','enrolled','started_at','percent_complete','completed_at']]
-    save_output(final_df,course_name+'.csv')
+    cleaned_df = cleaned_df[['name','track','course','enrolled','started_at','percent_complete','completed_at']]
     
-    return final_df
+    return cleaned_df
     
-def process(names = NAMES_FILE):
+def process(progress_file, names = NAMES_FILE):
     """
     Sets up the sequence for processing all relevant files
     
@@ -183,84 +170,55 @@ def process(names = NAMES_FILE):
         Note: only the percent_complete column will be appended to the master sheet
     """
 
+    
+    
+    # course_name = os.path.splitext(os.path.basename(progress_file))[0]
+    
+    # correct errors in name columns and add additional columns
+    cleaned_df = clean_progress_file(progress_file)
+    cleaned_df.reset_index(drop=True,inplace=True)
+    
+          
+    output_file_name = os.path.splitext(os.path.basename(progress_file))[0] 
+    output_file_name += '.csv'  
+    cleaned_df.to_csv(os.path.join(OUTPUT_FOLDER,output_file_name))       
 
-   
-    # read names
-    namesdf = load_names()
-    name_list = namesdf['name'].values.tolist()
-    email_list = namesdf['email'].values.tolist()
-    
-    # read progress files
-    progress_files = bulk_load_data(source_folder = PROGRESS_FOLDER)
-   
-    #progress_files =[course_name_to_code(item) for item in progress_files]
-    all_dataframes = []
-    
-    for file in progress_files:
-        progress_df = pd.read_csv(file, index_col=None, header=0)
-        all_dataframes.append((os.path.basename(file),progress_df))
-    
-    
-    # Now, process each file separately
-    
-    processed_dataframes = []
-    print('===== Processing Progress Files ====',end='\n\n')
-    for filename,datadf in all_dataframes:
-        print('processing {}'.format(filename))
-        
-        names_as_fullnames, names_as_emails = filter_names(datadf,name_list,email_list)
-        names_as_emails = emails_to_names(namesdf,names_as_emails)
-        
-        # update name column with full names
-        names_as_emails['name'] = names_as_emails.fullname.values
-        names_as_emails.drop(columns =['fullname'],inplace = True)
-              
-        #== output table should have: ==
-        # name, track, course, enroled, started, completed
-        final_df = final_df = pd.concat((names_as_fullnames,names_as_emails),axis=0)
-        
-        # add column for track info
-        name_track_map = dict(namesdf[['name','track']].values)
-        final_df['track'] = final_df['name'].map(name_track_map)
-    
-        
-                
-        #1. Add a column for course in the df
-        course_code = os.path.splitext(filename)[0]
-        course_name = course_code_to_name(course_code)
-        final_df['course'] = course_name
-        
-        # create columns for enrollment status
-        temp =[]
-        for record in final_df.to_dict(orient = 'records'):
-            #check if the course name for current progress file
-            # is in course list for thi record
             
-            temp.append(tag_enrollment(track= record['track'], course_code = course_code))
-        
-        final_df['enrolled'] = temp
-        
-        #filter out those enrolled
-        final_df = final_df[final_df.enrolled == 'Yes']
-        
-        # change the order of the columns
-        final_df = final_df[['name','track','course','enrolled','started_at','percent_complete','completed_at']]
-        #processed_dataframes.append(final_df)
-        #save_output(final_df, course_name)
-                
-            
-        
-    output_df = pd.concat(processed_dataframes, axis=0, ignore_index=True)
-    save_output(output_df,'current_progress.csv')
-            
-        
+
+def run():
+    """
+    Apply cleaning and formatting to all progress files
+
+    Returns
+    -------
+    None.
+
+    """
+    progress_files = load_progress_files()
+    
+    msg_template = """
+    ***********************************************
+    Beginning to Process {} Progress Files 
+    ************************************************
+    {}
+    """
+    success_msg = []
+    
+    #print(msg_template.format(len(progress_files)))
+    for progress_file in progress_files:
+        process(progress_file)
+        file_name = os.path.basename(progress_file)
+        success_msg.append("Cleaning... {}. File succefully saved".format(file_name))
+    
+    msg = '\n'.join(success_msg)
+    print(msg_template.format(len(progress_files),msg))            
         
         
 
 if __name__ == 'main':
-    process()
+    run()
 else:
-    process()
+    run()
     
     
 

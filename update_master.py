@@ -30,6 +30,7 @@ from common import MASTER_FOLDER, HISTORY_FOLDER
 
 from common import bulk_load_data,get_progress_data, load_data
 from common import get_course_enrolment
+from common import load_progress_files
 
 #========= Test Data ===
 #progress_file = r"C:\Users\AmaliTech\Documents\CourseProgress Processing\output\current_progress.csv"
@@ -61,18 +62,7 @@ l = []
 """
 #==============================================================================
 # 1
-def load_progress_files():
-    """
-    Loads progress files
-    Returns
-    -------
-    None.
 
-    """
-    files = bulk_load_data()
-    
-    
-    return files
 
 #2
 def load_master_files():
